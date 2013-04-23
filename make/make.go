@@ -1,13 +1,13 @@
 package main
 
 import (
-  "fmt"
-  "os"
+  //"fmt"
+  //"os"
   "flag"
-  "bufio"
-  "io"
-  "strings"
-  "regexp"
+  //"bufio"
+  //"io"
+  //"strings"
+  //"regexp"
   "gomake/depend"
 )
 
@@ -21,8 +21,7 @@ func main() {
 	flag.Parse()
 	if flag.NArg() > 0 {
   }
-
-  listofdependencies := Depend.ParseMake(filename)
-
-	}
+  dependmap := depend.ParseMake(*filename)
+  dmap := dependmap["all"]
+  dmap.Make()
 }
