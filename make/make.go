@@ -1,7 +1,7 @@
 package main
 
 import (
-  //"fmt"
+  "fmt"
   //"os"
   "flag"
   //"bufio"
@@ -18,10 +18,17 @@ var version = flag.Float64("v",1.0,"Print the version number of gomake and exit"
 var debug = flag.Bool("d",false,"Print lots of debugging information")
 
 func main() {
+  name := "all"
 	flag.Parse()
 	if flag.NArg() > 0 {
+    name = flag.Arg(0)
   }
   dependmap := depend.ParseMake(*filename)
-  dmap := dependmap["all"]
-  dmap.Make()
+  dmap := dependmap[name]
+  x := dmap.Make(0)
+  fmt.Println(dmap.Name)
+
+  if x < 1 {
+    fmt.Println("Nothing to make for",name)
+  }
 }
