@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	dependmap = make(map[string]DependNode)
+	dependmap = make(map[string]*DependNode)
 	keyword   = []string{"all", "clean"}
 )
 
@@ -23,12 +23,13 @@ type DependNode struct {
 	Name       string
 	dependent  []string
 	dependency []string
-	recipe     []exec.Cmd
-	DependList []DependNode
+	recipe     []string
+	DependList []*DependNode
+  Run        chan bool
 }
 
 // ParseMake opens a makefile, and creates a list of the dependencies within the file
-func ParseMake(filename string) map[string]DependNode {
+func ParseMake(filename string) map[string]*DependNode {
 	// Open the makefile
 	file, err := os.Open(filename)
 	if err != nil {
@@ -49,7 +50,8 @@ func ParseMake(filename string) map[string]DependNode {
 		switch {
 		case commentLine.MatchString(line): // input is a comment so ignore
 		case dependencyLine.MatchString(line):
-			dependnode := DependNode{}
+			dependnode := new(DependNode)
+      dependnode.Run = make(chan bool)
 
 			//for a dependency the proceeding lines need to be checked for recipes
 			dependencyArray := strings.Split(line, ":")
@@ -67,56 +69,90 @@ func ParseMake(filename string) map[string]DependNode {
 
 			//
 			for line, err := scanner.ReadString('\n'); err != io.EOF && recipeLine.MatchString(line); line, err = scanner.ReadString('\n') {
-				recipeArray := strings.Fields(line)
-				recipe := exec.Command(recipeArray[0], " ")
-				recipe.Args = recipeArray
-				dependnode.recipe = append(dependnode.recipe, *recipe)
+				recipe := line
+				dependnode.recipe = append(dependnode.recipe, recipe)
 			}
 
+			dependnode.Name = dependnode.dependent[0]
+			dependmap[dependnode.Name] = dependnode
+
 			// check if the dependency exists in the previous entries
+Top:
 			for _, d := range dependmap {
 				for _, e := range d.dependency {
 					for _, f := range dependnode.dependent {
 						if e == f {
 							d.DependList = append(d.DependList, dependnode)
-							break
+							break Top
 						}
 					}
 				}
 			}
-			dependnode.Name = dependnode.dependent[0]
-			dependmap[dependnode.Name] = dependnode
 		}
 	}
 	return dependmap
 }
 
 // Make executes the recipes contained in the node after completing those below it and returns the number of times it executed
-func (d *DependNode) Make(x int) int {
-	// if the node has other dependencies make those first
-	for _, e := range d.dependency {
-		dmap := dependmap[e]
-		x = dmap.Make(x)
-	}
+func (d *DependNode) Make(boolchan chan bool)  {
 
-	// get the most recently created dependent file
+  forever := <-boolchan
+
+  // execute the make
+  doRecipe(*d)
+
+  // inform the caller that you've finished
+  boolchan <- forever
+
+  // Wait to be called to execute again
+  for {
+    cond := <-d.Run
+    if cond {
+      doRecipe(*d)
+    }
+  }
+}
+
+// runs all the recipes if they need to be updated
+func doRecipe(d DependNode) {
+
+  // all the channels have to initialized separately
+  arrayChan := make([]chan bool,len(d.DependList))
+  for i := range arrayChan {
+    arrayChan[i] = make(chan bool)
+  }
+
+  // if the node has other dependencies make those first
+	for i,e := range d.DependList {
+		go e.Make(arrayChan[i])
+  }
+
+  // send a signal to all of the dependencies
+  for _,ac := range arrayChan {
+    ac <- true
+  }
+
+  // wait for all of the dependencies to complete
+  for _,ac := range arrayChan {
+    <-ac
+  }
+
+  // get the most recently created dependent file
 	minDependent := mostRecent(d.dependent)
 
 	// get the most recently created dependency file
 	minOtherTime := mostRecent(d.dependency)
-
 	// once those have finished make this node
 	if minDependent.Before(minOtherTime) || minDependent.IsZero() {
 		for _, r := range d.recipe {
-			err := r.Run()
+      cmd := exec.Command("sh","-c",r)
+			err := cmd.Run()
 			if err != nil {
 				fmt.Println(err)
 			}
-			fmt.Println(r.Args)
+			fmt.Println(strings.TrimSpace(strings.Join(cmd.Args[2:]," ")))
 		}
-		return x + 1
 	}
-	return x
 }
 
 // Returns the file created most recently
